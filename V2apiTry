@@ -1,0 +1,194 @@
+/**** Based on:
+
+  HueBlink example for ArduinoHttpClient library
+   Uses ArduinoHttpClient library to control Philips Hue
+   For more on Hue developer API see http://developer.meethue.com
+   For more on the ArduinoHttpClient, install the library from the
+   Library Manager.
+
+  *****Updated for Under Cabinet Lighting Project: motion detector initiates
+  the changing of light to a different color instead of time.
+
+  ***** Added functionality from PostWithHeaders
+  POST with headers client for ArduinoHttpClient library
+
+*/
+
+#include <SPI.h>
+//#include <WiFi101.h>  // for MKR1000
+#include <WiFiNINA.h>   // for Nano 33 IoT, MKR1010
+#include <ArduinoHttpClient.h>
+#include "arduino_secrets.h"
+
+int status = WL_IDLE_STATUS;      // the Wifi radio's status
+char hueHubIP[] = SECRET_HUE_IP;  // IP address of the HUE bridge
+String hueUserName = SECRET_HUE_USERNAME; // hue bridge username
+String light_25_id = SECRET_LIGHT_ID_25;
+
+// make a wifi instance and a HttpClient instance:
+WiFiClient wifi; //original way
+//WiFiSSLClient wifi; // Tom's suggestion: WiFiSSLClient
+
+/*From the API Doc: The Hue API can currently be accessed over HTTP on port 80
+  and HTTP over TLS (HTTPS) on port 443. For security reasons
+  HTTP access to the API will be disabled in a future firmware release.*/
+
+int port = 80; 
+HttpClient httpClient = HttpClient(wifi, hueHubIP, port);
+
+
+// change the values of these two in the arduino_serets.h file:
+char ssid[] = SECRET_SSID;
+char pass[] = SECRET_PASS;
+
+int ledPin = 7;                // choose the pin for the LED
+int inputPin = 2;               // choose the input pin (for PIR sensor)
+int pirState = LOW;             // we start, assuming no motion detected
+int val = 0;                    // variable for reading the pin status
+
+void setup() {
+
+  pinMode(ledPin, OUTPUT);      // declare LED as output
+  pinMode(inputPin, INPUT);     // declare sensor as input
+
+  //!!!!!!! REMOVE BEFORE FLIGHT
+  //Initialize serial and wait for port to open:
+  Serial.begin(9600);
+  while (!Serial); // wait for serial port to connect.
+  //!!!!!!! REMOVE BEFORE FLIGHT
+
+
+  // attempt to connect to Wifi network:
+  while ( status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to WPA SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network:
+    status = WiFi.begin(ssid, pass);
+  }
+
+  // you're connected now, so print out the data:
+  Serial.print("You're connected to the network IP = ");
+  IPAddress ip = WiFi.localIP();
+  Serial.println(ip);
+
+
+}
+
+void loop() {
+  val = digitalRead(inputPin);  // read input value
+  if (val == HIGH) {            // check if the input is HIGH
+    digitalWrite(ledPin, HIGH);  // turn LED ON
+    if (pirState == LOW) {
+      // if the state of the sensor was previously low, and now it's HIGH
+      Serial.println("Motion detected!");
+      sendRequest(light_25_id, "0.275", "0.822");  // change the color
+      // We only want to print on the output change, not state
+      pirState = HIGH;
+    }
+  } else {
+    digitalWrite(ledPin, LOW); // turn LED OFF
+    if (pirState == HIGH) {
+      // we have just turned of
+      Serial.println("Motion ended!");
+      sendRequest(light_25_id, "0.467", "0.123");  // change the color
+      // We only want to print on the output change, not state
+      pirState = LOW;
+    }
+  }
+}
+
+void sendRequest(String lightID, String colorX, String colorY) {
+
+  // make a String for the HTTP request path:
+  String request = "/clip/v2/resource/light/" + lightID;
+  //  request += "/lights/"; // left here from last example
+  //  request += light;
+  //  request += "/state/";
+  String contentType = "application/json";
+
+  // Format for color command PUT request = {"color": {"xy": {"x":0.000, "y":0.000}}}
+  // Format for the on/off command PUT request was = {"on":false}
+
+  // make a string for the JSON command:
+  String hueCmd = "{\"color\": {\"xy\": {\"x\":" + colorX;
+  hueCmd += ", \"y\":";
+  hueCmd += colorY;
+  hueCmd += "}}}";
+
+  // see what you assembled to send:
+  Serial.print("PUT request to server: ");
+  Serial.println(request);
+  Serial.print("JSON command to server: ");
+
+  //
+  //***************** TRY "simplePut" EXAMPLE =
+
+  //  Serial.println("making PUT request");
+  //  String headerContentType = "application/x-www-form-urlencoded"; ///??
+  //  String putData = "hue-application-key=OpdJvHlQacgnKKE9-nV1h-UdwiAaUENOvUXK6ZLG";
+  //
+  //  httpClient.put("/clip/v2/resource/light/31598d4a-a3a7-469e-93a3-8400df5dd60b", headerContentType, putData);
+
+  //***************** TRY "CustomHeaders" EXAMPLE =
+
+  //  httpClient.sendHeader("hue-application-key", "OpdJvHlQacgnKKE9-nV1h-UdwiAaUENOvUXK6ZLG");
+  //  httpClient.put("/clip/v2/resource/light/31598d4a-a3a7-469e-93a3-8400df5dd60b","hue-application-key", "OpdJvHlQacgnKKE9-nV1h-UdwiAaUENOvUXK6ZLG");
+
+
+  //***************** TRY "PostWithHeaders" EXAMPLE = 405 not allowed - *POST* not supported
+
+  //  Serial.println("making POST request");
+  //    String postData = "name=Alice&age=12";
+  //  client.beginRequest();
+  //  client.post("/");
+  //  client.sendHeader("Content-Type", "application/x-www-form-urlencoded");
+  //  client.sendHeader("Content-Length", postData.length());
+  //  client.sendHeader("X-Custom-Header", "custom-header-value");
+  //  client.beginBody();
+  //  client.print(postData);
+  //  client.endRequest();
+
+  // ANOTHER TRY:
+  //  httpClient.beginRequest();
+  //  httpClient.post("/");
+  //  httpClient.sendHeader("Content-Type", "application/x-www-form-urlencoded");
+  //  httpClient.sendHeader("hue-application-key", SECRET_HUE_USERNAME);
+  //  httpClient.sendHeader("Content-Type", "application/json");
+  //  httpClient.beginBody();
+  //  httpClient.endRequest();
+
+  //  Serial.println("Trying to set Header!");
+
+
+  //*****************TRY "BasicAuthGet" EXAMPLE = gets 404 and serves 404 webpage in html back
+
+  //    Serial.println("making GET request with HTTP basic authentication");
+  //    httpClient.beginRequest();
+  //    httpClient.get("/secure");
+  //    httpClient.sendBasicAuth("hue-application-key:", "OpdJvHlQacgnKKE9-nV1h-UdwiAaUENOvUXK6ZLG"); // send the username and password for authentication
+  //    httpClient.endRequest();
+
+
+  // ANOTHER TRY:
+
+  //  httpClient.beginRequest();
+  //  httpClient.put("/secure", "hue-application-key:", "OpdJvHlQacgnKKE9-nV1h-UdwiAaUENOvUXK6ZLG"); // send the username and password for authentication
+  //  httpClient.endRequest();
+
+  //***************** END OF TRIAL SECTION
+
+  // send the request
+  httpClient.sendHeader("hue-application-key", SECRET_HUE_USERNAME);
+  httpClient.put(request, contentType, hueCmd); //request URL, say it's json, send command message
+
+  // read the status code and body of the response
+  int statusCode = httpClient.responseStatusCode();
+  String response = httpClient.responseBody();
+
+  Serial.println(hueCmd);
+  Serial.print("Status code from server: ");
+  Serial.println(statusCode);
+  Serial.print("Server response: ");
+  Serial.println(response);
+  Serial.println();
+}
